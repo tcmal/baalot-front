@@ -2,11 +2,13 @@ import React from 'react';
 import { decode } from 'jsonwebtoken';
 import { GetServerSideProps } from 'next';
 import VoteDialog from '../../components/VoteDialog';
+import ErrorPage from '../../components/ErrorPage';
+import Content from '../../components/Content';
 import Backdrop from '@material-ui/core/Backdrop';
 import CircularProgress from '@material-ui/core/CircularProgress';
 
 function isPollObject(x) {
-    return typeof x == 'object' && 'uuid' in x && 'question' in x && ('responses' in x || x.free_response);
+    return typeof x == 'object' && 'uuid' in x && 'question' in x && ('responses' in x || x.freeResponse);
 }
 
 export const getServerSideProps = async (context) => {
@@ -36,7 +38,9 @@ export default class VotePage extends React.Component {
     constructor(props) {
         super(props);
         this.state = {
-            loading: false
+            loading: false,
+            done: false,
+            errors: [],
         };
     }
 
@@ -45,43 +49,60 @@ export default class VotePage extends React.Component {
         this.setState({ ...this.state, loading: true });
 
         let data = {
-            poll_jwt: jwt
+            pollJwt: jwt
         };
-        console.log(poll, resp);
-        if (poll.free_response) {
-            data.custom_response = resp;
+
+        if (poll.freeResponse) {
+            data.customResponse = resp;
         } else {
-            data.response_idx = poll.responses.indexOf(resp);
+            data.responseIdx = poll.responses.indexOf(resp).toString();
         }
 
         fetch(baseUrl + "/addVote", {
             method: "POST",
-            body: JSON.stringify({
-                poll_jwt: jwt
-            }),
+            body: JSON.stringify(data),
             headers: {
                 'Content-Type': 'application/json'
             }
         })
             .then(resp => resp.json())
-            .then(console.log);
+            .then(x => {
+                if (x.success) {
+                    this.setState({ ...this.state, done: true, loading: false });
+                } else {
+                    this.setState({ ...this.state, errors: x.errors, loading: false });
+                }
+            }).catch(e => {
+                this.setState({...this.state, loading: false, errors: {all: [e.toString()]}});
+            });
     }
 
     render() {
         const { poll, invalid } = this.props;
-        const { loading } = this.state;
+        const { loading, done, errors } = this.state;
 
         if (invalid) {
-            return (<h1>Invalid!</h1>);
+            return (
+                <ErrorPage msg="Invalid JWT" />
+            );
+        }
+
+        if (done) {
+            return (
+                <Content>
+                    <h1>Vote recorded successfully!</h1>
+                </Content>
+            );
         }
 
         return (
-            <div>
-                <VoteDialog poll={poll} onSubmit={this.handleSubmit} />
-                <Backdrop open={loading}>
-                    <CircularProgress color="inherit" />
-                </Backdrop>
-            </div>
+            <Content>
+                {loading ? 
+                    <CircularProgress /> :
+                    <VoteDialog poll={poll} onSubmit={this.handleSubmit} />
+                }
+                {Object.values(errors).flat().map((x,i) => <li key={i}>{x}</li>)}
+            </Content>
         );
     }
 }
